@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""kindlectl — 通过 WiFi 控制 Kindle 相册（只用 Python 标准库 + 系统 ssh）。
+
+  kindlectl connect 192.168.1.23   记住 Kindle 的 IP 并测试连接
+  kindlectl status                 相册是否在播、间隔、模式、照片数、电量
+  kindlectl logs [-n 40] [-f]      看启动日志和会话日志（-f 持续跟踪）
+  kindlectl shot [文件.png]        截取 Kindle 当前屏幕
+  kindlectl photos                 列出 Kindle 上的原图
+  kindlectl add 照片...            传照片并让相册重新导入（JPG/JPEG/PNG）
+  kindlectl interval 10|30|60|300  改换图间隔（秒）
+  kindlectl mode crop|contain      裁切填满 / 完整显示
+  kindlectl start|stop|restart     启动 / 停止 / 重启相册
+  kindlectl push 本地 远端          传文件到 Kindle
+  kindlectl pull 远端 本地          从 Kindle 取文件
+  kindlectl sh '命令'              在 Kindle 上执行命令（root）
+  kindlectl wifi-off               关闭 Kindle 上的无线控制
+
+环境变量 KINDLE_HOST 可临时指定 IP。
+"""
+import os
+import subprocess
+import sys
+import time
+import zlib
+import struct
+
+PORT = "2222"
+KEY = os.path.expanduser("~/.ssh/kindle_album_ed25519")
+CONF_DIR = os.path.expanduser("~/.config/kindle-album")
+HOST_FILE = os.path.join(CONF_DIR, "host")
+KNOWN_HOSTS = os.path.join(CONF_DIR, "known_hosts")
+
+RUNTIME = "/tmp/kindle-album-session"
+BASE = "/mnt/us/kindle-album/fullscreen-v2"
+DATA = BASE + "/data"
+PHOTOS = "/mnt/us/Photos"
+START = "/mnt/us/documents/Kindle_Album_Fullscreen_Start.sh"
+STOP = "/mnt/us/documents/Kindle_Album_Fullscreen_Stop.sh"
+
+# 屏幕：8 位灰度，每行 1280 字节，1680 行，可见宽度 1264
+FB_STRIDE, FB_ROWS, FB_WIDTH = 1280, 1680, 1264
+
+ALBUM_RUNNING = (
+    'pid=$(cat %s/pid 2>/dev/null); '
+    '[ -n "$pid" ] && [ -d "/proc/$pid" ]' % RUNTIME
+)
+
+
+def die(msg, code=1):
+    print("✗ " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def host():
+    h = os.environ.get("KINDLE_HOST")
+    if not h and os.path.exists(HOST_FILE):
+        h = open(HOST_FILE).read().strip()
+    if not h:
+        die("还不知道 Kindle 的 IP。先在 Kindle 文库点「Album WiFi On」，再运行：kindlectl connect <屏幕上显示的 IP>")
+    return h
+
+
+def ssh_args(h):
+    if not os.path.exists(KEY):
+        die("找不到密钥 %s。请先在仓库目录运行 ./install.sh <Kindle 盘>（它会生成并放入公钥）" % KEY)
+    os.makedirs(CONF_DIR, exist_ok=True)
+    return [
+        "ssh", "-p", PORT, "-i", KEY,
+        "-o", "IdentitiesOnly=yes",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=6",
+        "-o", "ServerAliveInterval=5",
+        "-o", "ServerAliveCountMax=3",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "UserKnownHostsFile=" + KNOWN_HOSTS,
+        "root@" + h,
+    ]
+
+
+def run(cmd, stdin=None, capture=True, check=True, h=None):
+    """在 Kindle 上执行 shell 命令。"""
+    h = h or host()
+    p = subprocess.run(
+        ssh_args(h) + [cmd],
+        input=stdin,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+    )
+    if p.returncode == 255:
+        err = (p.stderr or b"").decode(errors="replace").strip()
+        die("连不上 Kindle (%s:%s)。%s\n"
+            "  常见原因：Kindle 在休眠/锁屏（WiFi 会断，按电源键唤醒）、IP 变了、没开「Album WiFi On」。"
+            % (h, PORT, err))
+    if check and p.returncode != 0:
+        err = (p.stderr or b"").decode(errors="replace").strip()
+        die("Kindle 上命令失败（退出码 %d）：%s" % (p.returncode, err))
+    return p
+
+
+def text(cmd, **kw):
+    return run(cmd, **kw).stdout.decode(errors="replace")
+
+
+def album_running():
+    return run(ALBUM_RUNNING, check=False).returncode == 0
+
+
+def stop_album():
+    if not album_running():
+        return False
+    run("sh %s" % STOP, check=False)
+    for _ in range(30):
+        if not album_running():
+            return True
+        time.sleep(0.5)
+    die("相册 15 秒内没有停下。用 kindlectl logs 查看原因。")
+
+
+def start_album():
+    if album_running():
+        print("相册已经在运行。")
+        return
+    state = text("lipc-get-prop com.lab126.powerd state 2>/dev/null", check=False).strip()
+    if state and state != "active":
+        die("Kindle 当前是「%s」状态（不是亮屏）。先按电源键唤醒并解锁，再启动相册。" % state)
+    run("cd / && if command -v setsid >/dev/null 2>&1; then "
+        "nohup setsid sh %s >/dev/null 2>&1 </dev/null & "
+        "else nohup sh %s >/dev/null 2>&1 </dev/null & fi" % (START, START))
+    for _ in range(30):
+        time.sleep(0.5)
+        if album_running():
+            print("✓ 相册已启动。")
+            return
+    log = text("cat %s/launch.log 2>/dev/null | tail -n 20" % BASE, check=False)
+    die("相册没有起来。launch.log：\n" + (log or "（空）")
+        + "\n退出码含义见仓库 AI.md 的「排错」一节。")
+
+
+def restart_album():
+    was = stop_album()
+    start_album()
+    return was
+
+
+# ---------- 命令 ----------
+
+def cmd_connect(args):
+    if not args:
+        die("用法：kindlectl connect <IP>")
+    h = args[0]
+    out = text("cat /mnt/us/system/version.txt; uname -r", h=h)
+    os.makedirs(CONF_DIR, exist_ok=True)
+    with open(HOST_FILE, "w") as f:
+        f.write(h + "\n")
+    print("✓ 已连接 %s，以后命令都发给它。\n%s" % (h, out.strip()))
+
+
+def cmd_status(args):
+    script = r'''
+r=%(rt)s; d=%(data)s
+if %(running)s; then echo "相册: 运行中"; else echo "相册: 未运行"; fi
+if [ -f $r/frame-state ]; then set -- $(cat $r/frame-state); echo "当前: 第 $1 张, 间隔 ${2}s, 模式 $3"; fi
+echo "设置: 间隔 $(cat $d/interval.txt 2>/dev/null)s, 模式 $(cat $d/mode.txt 2>/dev/null)"
+echo "播放列表: $(wc -l < $d/slides.txt | tr -d ' ') 张"
+echo "Photos 原图: $(ls %(photos)s 2>/dev/null | grep -ciE '\.(jpe?g|png)$')"
+echo "电源状态: $(lipc-get-prop com.lab126.powerd state 2>/dev/null)"
+echo "电量: $(lipc-get-prop com.lab126.powerd battLevel 2>/dev/null)%% 充电中: $(lipc-get-prop com.lab126.powerd isCharging 2>/dev/null)"
+echo "剩余空间: $(df -h /mnt/us | awk 'NR==2{print $4}')"
+echo "固件: $(cat /mnt/us/system/version.txt 2>/dev/null)"
+''' % {"rt": RUNTIME, "data": DATA, "running": ALBUM_RUNNING, "photos": PHOTOS}
+    print(text(script, check=False).rstrip())
+
+
+def cmd_logs(args):
+    n = "40"
+    follow = "-f" in args
+    if "-n" in args:
+        n = args[args.index("-n") + 1]
+    if follow:
+        print("（Ctrl-C 结束）")
+        try:
+            run("tail -n %s -f %s/session.log" % (n, DATA), capture=False, check=False)
+        except KeyboardInterrupt:
+            pass
+        return
+    print(text(
+        'echo "== launch.log =="; cat %(b)s/launch.log 2>/dev/null; '
+        'echo "== session.log (最后 %(n)s 行) =="; tail -n %(n)s %(d)s/session.log 2>/dev/null; '
+        'if [ -f %(r)s/import-log ]; then echo "== import-log =="; tail -n 20 %(r)s/import-log; fi; '
+        'echo "== wireless =="; tail -n 5 /mnt/us/kindle-album/wireless/status.txt 2>/dev/null'
+        % {"b": BASE, "d": DATA, "r": RUNTIME, "n": n}, check=False).rstrip())
+
+
+def write_png(path, width, height, rows):
+    raw = b"".join(b"\x00" + r for r in rows)
+
+    def chunk(tag, data):
+        c = struct.pack(">I", len(data)) + tag + data
+        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(raw, 6)))
+        f.write(chunk(b"IEND", b""))
+
+
+def cmd_shot(args):
+    out = args[0] if args else time.strftime("kindle-%Y%m%d-%H%M%S.png")
+    data = run("dd if=/dev/fb0 bs=%d count=%d 2>/dev/null" % (FB_STRIDE, FB_ROWS)).stdout
+    if len(data) != FB_STRIDE * FB_ROWS:
+        die("读到的屏幕数据长度不对（%d 字节），可能不是 Oasis 3。" % len(data))
+    rows = [data[i * FB_STRIDE: i * FB_STRIDE + FB_WIDTH] for i in range(FB_ROWS)]
+    write_png(out, FB_WIDTH, FB_ROWS, rows)
+    print("✓ 截图已保存：%s" % os.path.abspath(out))
+    print("  注意：截图是屏幕内存里的内容，看不出墨水屏残影。")
+
+
+def cmd_photos(args):
+    print(text("ls -l %s 2>/dev/null | grep -iE '\\.(jpe?g|png)$' || echo '（没有原图）'" % PHOTOS,
+               check=False).rstrip())
+
+
+def push_file(local, remote):
+    with open(local, "rb") as f:
+        data = f.read()
+    d, name = os.path.split(remote)
+    tmp = "%s/.%s.part" % (d or ".", name)
+    qd, qtmp, qr = sh_quote(d or "."), sh_quote(tmp), sh_quote(remote)
+    run("mkdir -p %s && cat > %s && mv %s %s && sync" % (qd, qtmp, qtmp, qr), stdin=data)
+    return len(data)
+
+
+def sh_quote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def cmd_add(args):
+    if not args:
+        die("用法：kindlectl add 照片1.jpg 照片2.png ...")
+    ok = []
+    for p in args:
+        ext = os.path.splitext(p)[1].lower()
+        if ext not in (".jpg", ".jpeg", ".png"):
+            print("跳过（只支持 JPG/JPEG/PNG）：%s" % p)
+            continue
+        if not os.path.isfile(p):
+            print("跳过（文件不存在）：%s" % p)
+            continue
+        if os.path.getsize(p) > 64 * 1024 * 1024:
+            print("跳过（超过 64 MB）：%s" % p)
+            continue
+        n = push_file(p, "%s/%s" % (PHOTOS, os.path.basename(p)))
+        print("↑ %s（%.1f MB）" % (os.path.basename(p), n / 1048576))
+        ok.append(p)
+    if not ok:
+        return
+    print("重启相册以导入（Kindle 屏幕会显示“正在导入照片”）……")
+    restart_album()
+    # session.log 每次启动重写；导入结束时会写下 photo_import_completed 等行
+    done_re = "photo_import_completed|photo_import_activation_failed|photo_import_worker_exited|photo_import_unavailable"
+    line = ""
+    for _ in range(360):  # 最多等 3 分钟
+        time.sleep(0.5)
+        line = text("grep -E '%s' %s/session.log 2>/dev/null | tail -n 1" % (done_re, DATA), check=False).strip()
+        if line:
+            break
+    if not line:
+        print("导入还在进行（照片多时较慢）。稍后用 kindlectl status 看播放列表张数。")
+    elif line.startswith("photo_import_completed"):
+        kv = dict(x.split("=", 1) for x in line.split() if "=" in x)
+        print("✓ 导入完成：新增 %s，重复 %s，失败 %s。播放列表现在 %s 张。" % (
+            kv.get("added"), kv.get("duplicate"), kv.get("failed"),
+            text("wc -l < %s/slides.txt" % DATA).strip()))
+    else:
+        print("✗ 导入没成功：%s\n  用 kindlectl logs 查看详情。" % line)
+
+
+def set_setting(name, value):
+    was = stop_album()
+    run("printf '%%s\\n' %s > %s/%s.txt && sync" % (value, DATA, name))
+    print("✓ %s 已设为 %s" % (name, value))
+    if was:
+        start_album()
+
+
+def cmd_interval(args):
+    if not args or args[0] not in ("10", "30", "60", "300"):
+        die("用法：kindlectl interval 10|30|60|300（相册只支持这四档，单位秒）")
+    set_setting("interval", args[0])
+
+
+def cmd_mode(args):
+    if not args or args[0] not in ("crop", "contain"):
+        die("用法：kindlectl mode crop|contain（crop=裁切填满，contain=完整显示）")
+    set_setting("mode", args[0])
+
+
+def cmd_start(args):
+    start_album()
+
+
+def cmd_stop(args):
+    print("✓ 相册已停止。" if stop_album() else "相册本来就没在运行。")
+
+
+def cmd_restart(args):
+    restart_album()
+
+
+def cmd_push(args):
+    if len(args) != 2:
+        die("用法：kindlectl push 本地文件 Kindle上的完整路径")
+    n = push_file(args[0], args[1])
+    print("✓ %d 字节 → %s" % (n, args[1]))
+
+
+def cmd_pull(args):
+    if len(args) != 2:
+        die("用法：kindlectl pull Kindle上的路径 本地文件")
+    data = run("cat %s" % sh_quote(args[0])).stdout
+    with open(args[1], "wb") as f:
+        f.write(data)
+    print("✓ %d 字节 → %s" % (len(data), args[1]))
+
+
+def cmd_sh(args):
+    if not args:
+        die("用法：kindlectl sh '命令'")
+    p = run(" ".join(args), capture=False, check=False)
+    sys.exit(p.returncode)
+
+
+def cmd_wifi_off(args):
+    run("nohup sh /mnt/us/kindle-album/wireless/ssh-off.sh quiet >/dev/null 2>&1 </dev/null &", check=False)
+    print("✓ 已关闭。要再开：在 Kindle 文库点「Album WiFi On」。")
+
+
+COMMANDS = {
+    "connect": cmd_connect, "status": cmd_status, "logs": cmd_logs, "shot": cmd_shot,
+    "photos": cmd_photos, "add": cmd_add, "interval": cmd_interval, "mode": cmd_mode,
+    "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart,
+    "push": cmd_push, "pull": cmd_pull, "sh": cmd_sh, "wifi-off": cmd_wifi_off,
+}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        print(__doc__)
+        sys.exit(0 if len(sys.argv) < 2 else 2)
+    COMMANDS[sys.argv[1]](sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()

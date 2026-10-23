@@ -12,7 +12,11 @@ case "$pid" in
   *) if [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = "$home/dropbear" ]; then kill -TERM "$pid" 2>/dev/null || :; fi;;
 esac
 rm -f "$pidfile"
-while iptables -D INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
-while iptables -D OUTPUT -p tcp --sport "$port" -m conntrack --ctstate ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+for _ in 1 2 3 4 5; do
+  iptables -D INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT 2>/dev/null || break
+done
+for _ in 1 2 3 4 5; do
+  iptables -D OUTPUT -p tcp --sport "$port" -m conntrack --ctstate ESTABLISHED -j ACCEPT 2>/dev/null || break
+done
 printf '%s WiFi control OFF\n' "$(date '+%F %T')" >> /mnt/us/kindle-album/wireless/status.txt 2>/dev/null || :
 [ "${1:-}" = quiet ] || /usr/sbin/eips 1 5 "WiFi control OFF                    " >/dev/null 2>&1 || :

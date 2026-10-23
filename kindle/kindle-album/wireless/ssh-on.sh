@@ -33,11 +33,16 @@ fi
 [ -s "$keys" ] || fail "no public key (run install.sh on the Mac)"
 chmod 600 "$keys"
 
-# dropbear 缓存到 /var/local 运行：/mnt/us 在接 USB 时会被卸载，不能让常驻进程占着它
-if ! cmp -s "$koreader/dropbear" "$home/dropbear"; then
-  cp "$koreader/dropbear" "$home/dropbear.tmp" && chmod 755 "$home/dropbear.tmp" &&
-    mv "$home/dropbear.tmp" "$home/dropbear" || fail "cannot cache dropbear"
-fi
+# dropbear 缓存到 /var/local 运行：/mnt/us 在接 USB 时会被卸载，不能让常驻进程占着它。
+# KOReader 的 dropbear 按 RPATH=$ORIGIN/libs 加载 libz.so.1，所以连同它一起缓存。
+cache() {
+  if ! cmp -s "$1" "$2"; then
+    cp "$1" "$2.tmp" && chmod 755 "$2.tmp" && mv "$2.tmp" "$2" || fail "cannot cache $(basename "$1")"
+  fi
+}
+mkdir -p "$home/libs" || fail "cannot create $home/libs"
+cache "$koreader/dropbear" "$home/dropbear"
+[ -f "$koreader/libs/libz.so.1" ] && cache "$koreader/libs/libz.so.1" "$home/libs/libz.so.1"
 
 running() {
   pid=$(cat "$pidfile" 2>/dev/null) || return 1
@@ -46,8 +51,12 @@ running() {
 }
 
 # 防火墙开洞（先删同样的规则，避免重复）
-while iptables -D INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
-while iptables -D OUTPUT -p tcp --sport "$port" -m conntrack --ctstate ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+for _ in 1 2 3 4 5; do
+  iptables -D INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT 2>/dev/null || break
+done
+for _ in 1 2 3 4 5; do
+  iptables -D OUTPUT -p tcp --sport "$port" -m conntrack --ctstate ESTABLISHED -j ACCEPT 2>/dev/null || break
+done
 iptables -I INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT || fail "iptables INPUT"
 iptables -I OUTPUT -p tcp --sport "$port" -m conntrack --ctstate ESTABLISHED -j ACCEPT || fail "iptables OUTPUT"
 

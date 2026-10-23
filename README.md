@@ -138,7 +138,7 @@ kindlectl add ~/Pictures/挑好的/*.jpg
 ./install.sh --update /Volumes/Kindle
 ```
 
-只更新程序文件（旧的先备份到 `kindle-album/backup/`），照片、播放列表和设置不动。然后从第 6 步继续。这是最后一次插线。
+只更新程序文件（旧的先备份到 `kindle-album/backup/`），照片、播放列表和设置不动。拔线后，如果文库里出现 **Album Input Setup**，先点一下（已经装好触屏读取器的设备会直接通过），然后从第 6 步继续。这是最后一次插线。
 
 ## 出问题怎么办
 
@@ -164,7 +164,7 @@ kindlectl add ~/Pictures/挑好的/*.jpg
 
 - ✅ 锁屏 / 休眠 / 唤醒续播 / 自动换图 / USB 退出：作者设备完整实测通过。
 - ⚠️ 在 Kindle 上自动导入原图、一次性触屏准备：本地测试全部通过，还没在第二台设备实测。
-- ⚠️ **WiFi 无线控制（第 6 步起）是新加的**：Mac 端工具和 Kindle 端脚本都在模拟环境里测过，SSH 服务用的是 KOReader 官方自带、在 Kindle 上广泛使用的同一个程序，但这套组合还没在真机上跑过。第一次用如果遇到问题，`Album WiFi On` 失败原因会写在 `kindle-album/wireless/status.txt`。
+- ⚠️ **WiFi 无线控制（第 6 步起）是新加的**：已用 qemu 运行 KOReader v2026.07.1 包里**原样的 ARM 版 dropbear**，按 Kindle 上的同样路径和参数完成整套测试——公钥登录成功，其他密钥和密码登录均被拒绝，3 MB 文件往返校验一致，开启/关闭/重复开启/随相册自动开启都正常。还没在真机 Kindle 上跑过（防火墙、WiFi 地址获取这两处只能在真机验证）。第一次用如果遇到问题，`Album WiFi On` 的失败原因会显示在屏幕上，并写入 `kindle-album/wireless/status.txt`。
 - ❌ 没验证：带锁屏密码、长期耗电、长期残影。
 
 ## 仓库结构

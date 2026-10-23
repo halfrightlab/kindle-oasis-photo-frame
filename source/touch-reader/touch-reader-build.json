@@ -1,0 +1,17 @@
+{
+  "source": "touch-reader.S",
+  "source_sha256": "8107fa7348ddfb4dab6e5d12967c052654b5f1fafca553e9cd4dac0362da4e2f",
+  "binary_sha256": "aea0e2ce863b166654b7a9ff7122d1734d18856d5a864f259ffe8c801c56ddf7",
+  "bytes": 4560,
+  "architecture": "ARMv7 EABI5 static",
+  "external_libraries": [],
+  "capabilities": [
+    "open /dev/input/event8 read-only",
+    "EVIOCGRAB",
+    "read events",
+    "write event metadata to stdout"
+  ],
+  "network_calls": false,
+  "text_segment_writable": false,
+  "executable_stack": false
+}

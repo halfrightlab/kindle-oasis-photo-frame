@@ -2,6 +2,7 @@
 """kindlectl — 通过 WiFi 控制 Kindle 相册（只用 Python 标准库 + 系统 ssh）。
 
   kindlectl connect 192.168.1.23   记住 Kindle 的 IP 并测试连接
+  kindlectl check                  全面体检（程序版本、无线控制、相册、日志），结果可直接贴给 AI
   kindlectl status                 相册是否在播、间隔、模式、照片数、电量
   kindlectl logs [-n 40] [-f]      看启动日志和会话日志（-f 持续跟踪）
   kindlectl shot [文件.png]        截取 Kindle 当前屏幕
@@ -331,13 +332,79 @@ def cmd_sh(args):
     sys.exit(p.returncode)
 
 
+REPO_KINDLE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "kindle")
+
+
+def cmd_check(args):
+    """一次性体检：核对真机上的程序版本、无线控制、相册状态，输出可直接贴给 AI 的报告。"""
+    import hashlib
+    expect = {}
+    for sub in ("kindle-album/fullscreen-v2/app", "kindle-album/wireless", "documents"):
+        root = os.path.join(REPO_KINDLE, sub)
+        for dp, _, fs in os.walk(root):
+            for f in fs:
+                p = os.path.join(dp, f)
+                rel = os.path.relpath(p, REPO_KINDLE)
+                if rel == "documents/Kindle_Album_Input_Setup.sh":
+                    continue
+                expect["/mnt/us/" + rel] = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    expect["/var/local/kindle-album/app/touch-reader"] = \
+        "aea0e2ce863b166654b7a9ff7122d1734d18856d5a864f259ffe8c801c56ddf7"
+    listing = " ".join(sh_quote(p) for p in sorted(expect))
+    out = text("for f in %s; do if [ -f \"$f\" ]; then sha256sum \"$f\"; else echo \"MISSING $f\"; fi; done"
+               % listing, check=False)
+    got = {}
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            got[parts[1].strip()] = parts[0]
+    bad = []
+    for p, h in sorted(expect.items()):
+        g = got.get(p)
+        if g == "MISSING" or g is None:
+            bad.append("缺少 %s" % p)
+        elif g != h:
+            bad.append("版本不同 %s" % p)
+    print("== 程序文件（%d 个）==" % len(expect))
+    print("✓ 全部与仓库一致" if not bad else "\n".join("✗ " + b for b in bad))
+
+    script = r'''
+echo "== 设备 =="
+echo "固件: $(cat /mnt/us/system/version.txt 2>/dev/null)"
+echo "内核: $(uname -r)"
+echo "运行时间: $(cut -d. -f1 /proc/uptime) 秒"
+echo "电源状态: $(lipc-get-prop com.lab126.powerd state 2>/dev/null)"
+echo "电量: $(lipc-get-prop com.lab126.powerd battLevel 2>/dev/null)%%"
+echo "密码标志: $([ -f /var/local/system/userpasswdenabled ] && echo 已设置-相册会拒绝启动 || echo 无)"
+echo "屏幕: bpp=$(cat /sys/class/graphics/fb0/bits_per_pixel) rotate=$(cat /sys/class/graphics/fb0/rotate)"
+echo "数据盘剩余: $(df -h /mnt/us | awk 'NR==2{print $4}')  /var/local 剩余: $(df -h /var/local | awk 'NR==2{print $4}')"
+echo "== 无线控制 =="
+pid=$(cat /tmp/kindle-album-ssh.pid 2>/dev/null)
+echo "dropbear: pid=$pid exe=$(readlink /proc/$pid/exe 2>/dev/null)"
+echo "自动开启: $([ -f /var/local/kindle-album/ssh/autostart ] && echo 是 || echo 否)"
+echo "WiFi: $(ip -4 addr show wlan0 2>/dev/null | awk '/inet /{print $2; exit}')"
+echo "防火墙 2222 规则数: $(iptables -S 2>/dev/null | grep -c 'port 2222')"
+echo "最近状态:"; tail -n 3 /mnt/us/kindle-album/wireless/status.txt 2>/dev/null | sed 's/^/  /'
+echo "== 相册 =="
+if %(running)s; then echo "运行中 (pid $(cat %(rt)s/pid))"; else echo "未运行"; fi
+echo "触屏准备: $(head -1 /mnt/us/kindle-album/input-ready.txt 2>/dev/null || echo 未记录)"
+echo "KOReader luajit: $([ -x /mnt/us/koreader/luajit ] && echo 有 || echo 缺失-无法导入照片)"
+echo "间隔: $(cat %(d)s/interval.txt)  模式: $(cat %(d)s/mode.txt 2>/dev/null)  播放列表: $(wc -l < %(d)s/slides.txt | tr -d ' ') 张"
+echo "Photos 原图: $(ls /mnt/us/Photos 2>/dev/null | grep -ciE '\.(jpe?g|png)$') 张"
+echo "备份: $(ls /mnt/us/kindle-album/backup 2>/dev/null | tr '\n' ' ')"
+echo "== launch.log =="; tail -n 5 %(b)s/launch.log 2>/dev/null
+echo "== session.log（最后 12 行）=="; tail -n 12 %(d)s/session.log 2>/dev/null
+''' % {"running": ALBUM_RUNNING, "rt": RUNTIME, "d": DATA, "b": BASE}
+    print(text(script, check=False).rstrip())
+
+
 def cmd_wifi_off(args):
     run("nohup sh /mnt/us/kindle-album/wireless/ssh-off.sh quiet >/dev/null 2>&1 </dev/null &", check=False)
     print("✓ 已关闭。要再开：在 Kindle 文库点「Album WiFi On」。")
 
 
 COMMANDS = {
-    "connect": cmd_connect, "status": cmd_status, "logs": cmd_logs, "shot": cmd_shot,
+    "connect": cmd_connect, "check": cmd_check, "status": cmd_status, "logs": cmd_logs, "shot": cmd_shot,
     "photos": cmd_photos, "add": cmd_add, "interval": cmd_interval, "mode": cmd_mode,
     "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart,
     "push": cmd_push, "pull": cmd_pull, "sh": cmd_sh, "wifi-off": cmd_wifi_off,

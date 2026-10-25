@@ -116,6 +116,7 @@ kindlectl add ~/Pictures/挑好的/*.jpg
 
 | 想做什么 | 命令 |
 |---|---|
+| 全面体检（贴给 AI 排错用） | `kindlectl check` |
 | 看状态（是否在播、间隔、张数、电量） | `kindlectl status` |
 | 加照片 | `kindlectl add 照片...` |
 | 改换图间隔 | `kindlectl interval 300`（只有 10 / 30 / 60 / 300 秒四档） |

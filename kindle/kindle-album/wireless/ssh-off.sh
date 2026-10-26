@@ -19,4 +19,4 @@ for _ in 1 2 3 4 5; do
   iptables -D OUTPUT -p tcp --sport "$port" -m conntrack --ctstate ESTABLISHED -j ACCEPT 2>/dev/null || break
 done
 printf '%s WiFi control OFF\n' "$(date '+%F %T')" >> /mnt/us/kindle-album/wireless/status.txt 2>/dev/null || :
-[ "${1:-}" = quiet ] || /usr/sbin/eips 1 5 "WiFi control OFF                    " >/dev/null 2>&1 || :
+[ "${1:-}" = quiet ] || sh /mnt/us/kindle-album/wireless/card.sh "WiFi control OFF"

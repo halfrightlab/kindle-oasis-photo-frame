@@ -65,7 +65,7 @@ Kindle 插回电脑，在本仓库目录执行：
 ## 6. 开启无线控制
 
 1. Kindle 连上 WiFi（不要开飞行模式）。
-2. 文库里点 **Album WiFi On**。屏幕上方会出现一行 `WiFi control ON  192.168.x.x:2222`，记下这个 IP。
+2. 文库里点 **Album WiFi On**。屏幕会全屏显示 `WiFi control ON` 和 `192.168.x.x:2222`，记下这个 IP 后轻点屏幕关闭（2 分钟后也会自动关闭）。
 3. 在 Mac 上（仓库目录）：
 
 ```sh

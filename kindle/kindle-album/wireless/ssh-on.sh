@@ -10,11 +10,10 @@ home=/var/local/kindle-album/ssh
 pidfile=/tmp/kindle-album-ssh.pid
 port=2222
 
-note() {
-  printf '%s %s\n' "$(date '+%F %T')" "$1" >> "$src/status.txt" 2>/dev/null || :
-  [ "$mode" = quiet ] || /usr/sbin/eips 1 5 "$1                    " >/dev/null 2>&1 || :
-}
-fail() { note "WiFi control FAILED: $1"; exit 1; }
+note() { printf '%s %s\n' "$(date '+%F %T')" "$1" >> "$src/status.txt" 2>/dev/null || :; }
+# 文库入口调用时全屏显示结果，轻点屏幕关闭
+show() { [ "$mode" = quiet ] || sh "$src/card.sh" "$1" "$2"; }
+fail() { note "WiFi control FAILED: $1"; show "WiFi control FAILED" "$1"; exit 1; }
 
 [ "$(id -u)" = 0 ] || fail "not root"
 [ -f "$koreader/dropbear" ] || fail "KOReader dropbear missing"
@@ -76,3 +75,4 @@ ip=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet /{split($2,a,"/"); print a[1
 [ -n "$ip" ] || ip="no-wifi"
 printf 'ip=%s\nport=%s\n' "$ip" "$port" > "$src/address.txt" 2>/dev/null || :
 note "WiFi control ON  $ip:$port"
+show "WiFi control ON" "$ip:$port"

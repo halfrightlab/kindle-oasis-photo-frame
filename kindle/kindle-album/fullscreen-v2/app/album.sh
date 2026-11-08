@@ -83,7 +83,7 @@ trap 'finish_album "$?"' EXIT
 trap 'exit_signal=HUP; exit 0' HUP
 trap 'exit_signal=INT; exit 0' INT
 trap 'exit_signal=TERM; exit 0' TERM
-printf 'started=%s\nversion=fullscreen-v2-device-photo-import1\ninterval=%s\nmode=%s\nnetwork_required=no\nsleep_adaptation=trial_requires_native_exit\npasscode_policy=refuse_if_enabled\npower_settings_modified=no\nnative_framework_paused=no\n' "$(date +%s)" "$interval" "$fit_mode" > "$base/session.log"
+printf 'started=%s\nversion=fullscreen-v2-device-photo-import2\ninterval=%s\nmode=%s\nnetwork_required=no\nsleep_adaptation=trial_requires_native_exit\npasscode_policy=refuse_if_enabled\npower_settings_modified=no\nnative_framework_paused=no\n' "$(date +%s)" "$interval" "$fit_mode" > "$base/session.log"
 cache_session_helpers() {
   for helper in cleanup watchdog album ui-state power-state photo-import; do
     cp "$app/$helper.sh" "$runtime/$helper.sh.tmp" || return 1
@@ -388,7 +388,10 @@ EOF
   fi
   if [ "$power_yield" = 1 ]; then yield_native; fi
   if [ "$power_abort" = 1 ]; then printf 'native_fallback=yes\n' >> "$base/session.log"; exit 0; fi
-  if [ "$power_photo" = 1 ]; then render; power_photo=0; fi
+  if [ "$power_photo" = 1 ]; then
+    if [ "$power_advance" = 1 ]; then index=$((index%count+1)); power_advance=0; fi
+    render; power_photo=0
+  fi
   check_sleep_photo "$force_sleep_check"
   if [ "$power_resume" = 1 ]; then resume_album || exit 99; fi
   if [ "$power_phase" = active ]; then

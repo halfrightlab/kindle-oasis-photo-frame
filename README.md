@@ -1,14 +1,29 @@
 # Kindle Oasis 3 → 电子相框（WiFi 控制）
 
-把 Kindle Oasis 3 变成全屏轮播照片的相框：按电源键正常锁屏休眠，唤醒后接着播同一张；原生阅读和 KOReader 照常可用。
+> 书看完了，Kindle 不用退休，换个岗位继续上班。
 
-**装好以后不用再插线**：在 Mac 上通过 WiFi 传照片、改间隔、看日志、截屏，也可以让 AI 直接连上 Kindle 帮你调试。思路来自 [Niraj Rajgor 的文章](https://nirajrajgor.com/blog/kindle-photo-frame-with-ai)。
+抽屉里那台 Kindle Oasis 3，墨水屏、不刺眼、待机能撑好几天，拿来吃灰实在可惜。这个项目把它变成一台**全屏轮播照片的电子相框**：
 
-照着下面的步骤做完，你的设备就和作者的一样。也可以把这个仓库直接交给 AI，让它按 [AI.md](AI.md) 带你做。
+- 🖼️ 全屏轮播，墨水屏显示照片有种报纸印刷的味道
+- 🔋 按电源键照常锁屏休眠，唤醒后接着播**同一张**，不会从头再来
+- 📚 原生阅读和 KOReader 照常能用，相框和看书互不打扰
+- 📡 **装好以后不用再插线**：在 Mac 上隔空传照片、改间隔、看日志、截屏
+- 🤖 可以让 AI 直接连上 Kindle 帮你调试，你只负责在屏幕上点点
+
+照着下面的步骤做完，你的 Kindle 就和作者那台一模一样。懒得自己看？把这个仓库丢给 AI 助手，让它按 [AI.md](AI.md) 一步步带你做。
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+[![Device](https://img.shields.io/badge/Kindle-Oasis%203%20%C2%B7%205.18.2.1.1-232f3e?style=flat-square&logo=amazon)](#0-先确认能不能用不满足就停)
+[![Inspired by](https://img.shields.io/badge/%E7%81%B5%E6%84%9F%E6%9D%A5%E8%87%AA-Niraj%20Rajgor-6b7280?style=flat-square)](https://nirajrajgor.com/blog/kindle-photo-frame-with-ai)
+
+> 灵感来自 [Niraj Rajgor 的文章](https://nirajrajgor.com/blog/kindle-photo-frame-with-ai)。越狱有风险，动手前请确认你愿意为自己的 Kindle 负责。
 
 ---
 
 ## 0. 先确认能不能用（不满足就停）
+
+这一步别跳。条件不对硬上，最好的结果是白忙一场。
+
 
 | 条件 | 怎么看 |
 |---|---|
@@ -110,7 +125,7 @@ kindlectl add ~/Pictures/挑好的/*.jpg
 
 ---
 
-## 日常使用
+## 日常使用：一条命令办一件事
 
 **在 Mac 上**
 
@@ -141,7 +156,7 @@ kindlectl add ~/Pictures/挑好的/*.jpg
 
 只更新程序文件（旧的先备份到 `kindle-album/backup/`），照片、播放列表和设置不动。拔线后，如果文库里出现 **Album Input Setup**，先点一下（已经装好触屏读取器的设备会直接通过），然后从第 6 步继续。这是最后一次插线。
 
-## 出问题怎么办
+## 出问题怎么办（先别慌）
 
 | 现象 | 处理 |
 |---|---|
@@ -161,7 +176,7 @@ kindlectl add ~/Pictures/挑好的/*.jpg
 - 登录后是 Kindle 的 root 权限，等同于完全控制这台 Kindle。不要把私钥给别人；不在公共 WiFi 上开启。
 - 不用了就点 **Album WiFi Off**，它会关掉服务、关上防火墙端口，并取消自动开启。
 
-## 当前验证状态（如实说明）
+## 当前验证状态（不吹不黑，如实说明）
 
 - ✅ 锁屏 / 休眠 / 唤醒续播 / 自动换图 / USB 退出：作者设备完整实测通过。
 - ⚠️ 在 Kindle 上自动导入原图、一次性触屏准备：本地测试全部通过，还没在第二台设备实测。
@@ -182,4 +197,19 @@ AI.md             给 AI 助手的执行说明
 source/           触屏读取器源码（4560 字节 ARMv7 静态程序，只读 /dev/input/event8，不联网）
 ```
 
-完整的探索过程、调试记录、本地测试套件见原始仓库 [judeyang/kindle-oasis-photo-frame](https://github.com/judeyang/kindle-oasis-photo-frame)。越狱工具与 KOReader 归各自上游所有，本仓库不分发它们。
+越狱工具与 KOReader 归各自上游所有，本仓库不分发它们。
+
+## 贡献者
+
+| | 谁 | 干了什么 |
+|---|---|---|
+| 🧑‍🔬 | [半对实验室 halfrightlab](https://github.com/halfrightlab) | 出主意、拿自己的 Kindle 当小白鼠、真机验收 |
+| 🤖 | [Claude](https://github.com/claude)（Anthropic） | 写代码、写文档、qemu 里模拟测试 |
+| 🤖 | [Codex / ChatGPT](https://github.com/codex)（OpenAI） | 编程助手 |
+| 🤖 | WorkBuddy | 编程助手 |
+
+手上有别的 Kindle 型号、愿意帮忙验证？欢迎提 issue。
+
+## 许可协议
+
+[Apache License 2.0](LICENSE)。可以自由使用、修改、商用；再分发时请保留 [NOTICE](NOTICE) 里的署名。KOReader、越狱工具等第三方软件遵循各自的许可证。

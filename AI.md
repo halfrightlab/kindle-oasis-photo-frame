@@ -61,4 +61,4 @@
 
 **卡死**：`kindlectl stop`；连不上就请用户按电源键或插 USB（相册会自动退出）；仍不行按住电源键约 40 秒重启。
 
-更深入的原理（锁屏交接、RAM 缓存清理、USB 交还）见原始仓库 `docs/05-debugging-method.md`：https://github.com/judeyang/kindle-oasis-photo-frame
+更深入的原理（锁屏交接、RAM 缓存清理、USB 交还）直接读 `kindle/kindle-album/fullscreen-v2/app/` 下的 `album.sh`、`power-state.sh`、`cleanup.sh`。

@@ -83,7 +83,7 @@ trap 'finish_album "$?"' EXIT
 trap 'exit_signal=HUP; exit 0' HUP
 trap 'exit_signal=INT; exit 0' INT
 trap 'exit_signal=TERM; exit 0' TERM
-printf 'started=%s\nversion=fullscreen-v2-device-photo-import2\ninterval=%s\nmode=%s\nnetwork_required=no\nsleep_adaptation=trial_requires_native_exit\npasscode_policy=refuse_if_enabled\npower_settings_modified=no\nnative_framework_paused=no\n' "$(date +%s)" "$interval" "$fit_mode" > "$base/session.log"
+printf 'started=%s\nversion=fullscreen-v2-device-photo-import4\ninterval=%s\nmode=%s\nnetwork_required=no\nsleep_adaptation=trial_requires_native_exit\npasscode_policy=refuse_if_enabled\npower_settings_modified=no\nnative_framework_paused=no\n' "$(date +%s)" "$interval" "$fit_mode" > "$base/session.log"
 cache_session_helpers() {
   for helper in cleanup watchdog album ui-state power-state photo-import; do
     cp "$app/$helper.sh" "$runtime/$helper.sh.tmp" || return 1
@@ -300,10 +300,17 @@ render() {
     printf 'import_screen=%s time=%s power_phase=%s\n' "$display" "$now" "$power_phase" >> "$base/session.log"
   fi
   if [ "$power_phase" = locked ]; then
-    if [ "$sleep_photo_drawn" = 0 ]; then sleep_photo_guard_until=$((now+5)); fi
+    if [ "$sleep_photo_drawn" = 0 ]; then
+      sleep_photo_guard_until=$((now+5))
+      sleep_next_change=$((now+lock_interval))
+    fi
     sleep_photo_drawn=1
     sleep_photo_fingerprint=$(frame_fingerprint) || sleep_photo_fingerprint=
     printf 'sleep_photo_drawn=yes\n' >> "$base/session.log"
+    # Locked rotation runs indefinitely, so keep this log bounded.
+    if [ "$(wc -c < "$base/session.log")" -gt 1048576 ]; then
+      tail -n 2000 "$base/session.log" > "$base/session.log.tmp" && mv "$base/session.log.tmp" "$base/session.log"
+    fi
   fi
   printf '%s %s %s %s\n' "$index" "$interval" "$fit_mode" "$controls_visible" > "$runtime/frame-state"
   render_needed=0
@@ -391,6 +398,14 @@ EOF
   if [ "$power_photo" = 1 ]; then
     if [ "$power_advance" = 1 ]; then index=$((index%count+1)); power_advance=0; fi
     render; power_photo=0
+  fi
+  if [ "$power_rtc" = 1 ]; then
+    # Powerd only accepts this during readyToSuspend; each event refreshes the alarm.
+    rtc_seconds=$((sleep_next_change-$(date +%s)))
+    if [ "$rtc_seconds" -lt 30 ]; then rtc_seconds=30; fi
+    lipc-set-prop -i com.lab126.powerd rtcWakeup "$rtc_seconds" 2>> "$runtime/power-errors" ||
+      printf 'rtc_wakeup_failed=%s time=%s\n' "$rtc_seconds" "$(date +%s)" >> "$base/session.log"
+    power_rtc=0
   fi
   check_sleep_photo "$force_sleep_check"
   if [ "$power_resume" = 1 ]; then resume_album || exit 99; fi

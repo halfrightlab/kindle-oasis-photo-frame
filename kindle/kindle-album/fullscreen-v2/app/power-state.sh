@@ -12,13 +12,18 @@ power_init() {
   sleep_photo_guard_until=0
   sleep_photo_repairs=0
   sleep_draw_after=0
+  sleep_next_change=0
+  # Powerd stays up about 90 seconds after a wake, then sleeps at least about 90
+  # seconds, so 80 gives one change before each suspend and one on each wake.
+  lock_interval=80
   power_advance=0
+  power_rtc=0
   power_query_failures=0
   power_resume=0
   power_abort=0
 }
 power_event() {
-  power_yield=0; power_photo=0
+  power_yield=0; power_photo=0; power_rtc=0
   case "$1" in
     *goingToScreenSaver*)
       if [ "$power_phase" != locked ]; then
@@ -28,16 +33,22 @@ power_event() {
       power_phase=locked; native_exit_seen=0; native_lock_seen=0; resume_deadline=0
       power_yield=1;;
     *readyToSuspend*)
-      if [ "$power_phase" = locked ] && [ "$sleep_photo_drawn" = 0 ]; then power_photo=1; fi;;
+      if [ "$power_phase" = locked ]; then
+        power_rtc=1
+        if [ "$sleep_photo_drawn" = 0 ]; then power_photo=1; fi
+      fi;;
     *goingToPasswdDlg*)
       power_phase=unlocking; native_exit_seen=0; power_advance=0
       resume_deadline=$(($2+30)); power_yield=1;;
     *wakeupFromSuspend*)
       # Powerd also wakes by itself while locked, so this alone is not an unlock.
-      # Stay locked and, unless an unlock event follows, draw the next photo.
-      if [ "$power_phase" = locked ]; then
+      # Stay locked and redraw; if the photo is due and no unlock event follows,
+      # draw the next one. The alarm may fire up to 10 seconds early.
+      # A photo drawn just before this event was read needs no second flash.
+      if [ "$power_phase" = locked ] && [ "$2" -ge "$((sleep_next_change-lock_interval+15))" ]; then
         sleep_photo_drawn=0; sleep_photo_fingerprint=; sleep_photo_guard_until=0; sleep_photo_repairs=0
-        sleep_draw_after=$(($2+5)); power_advance=1
+        sleep_draw_after=$(($2+5))
+        if [ "$(($2+15))" -ge "$sleep_next_change" ]; then power_advance=1; fi
       fi;;
     *outOfScreenSaver*)
       if [ "$power_phase" != active ]; then
@@ -80,6 +91,10 @@ power_tick() {
     power_phase=locked; resume_deadline=0; sleep_photo_drawn=0; sleep_draw_after=0
   fi
   if [ "$power_phase" = locked ] && [ "$native_lock_seen" = 0 ]; then return; fi
+  if [ "$power_phase" = locked ] && [ "$1" != active ] && [ "$sleep_photo_drawn" = 1 ] && [ "$2" -ge "$sleep_next_change" ]; then
+    sleep_photo_drawn=0; sleep_photo_fingerprint=; sleep_photo_guard_until=0; sleep_photo_repairs=0
+    power_advance=1
+  fi
   if [ "$power_phase" = locked ] && [ "$1" != active ] && [ "$sleep_photo_drawn" = 0 ] && [ "$2" -ge "$sleep_draw_after" ]; then
     power_photo=1
   fi

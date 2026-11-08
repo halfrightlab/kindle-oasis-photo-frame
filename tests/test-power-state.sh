@@ -11,8 +11,9 @@ locked_with_photo() {
   power_init
   power_event "goingToScreenSaver 2" 1000
   power_tick screenSaver 1001
-  sleep_photo_drawn=1
+  sleep_photo_drawn=1; sleep_next_change=1121
   power_event "readyToSuspend 10" 1060
+  expect "准备深睡时设闹钟" power_rtc 1
   power_tick unavailable 1120
 }
 
@@ -27,11 +28,39 @@ power_tick screenSaver 4701
 expect "唤醒后先等系统画完" power_photo 0
 power_tick screenSaver 4705
 expect "5 秒后重画" power_photo 1
-sleep_photo_drawn=1; power_photo=0; power_advance=0
+sleep_photo_drawn=1; power_photo=0; power_advance=0; sleep_next_change=4825
 power_event "readyToSuspend 10" 4760
 power_tick unavailable 4793
 expect "再次深睡不退出" power_abort 0
 expect "再次深睡" power_phase locked
+
+# 锁屏期间未深睡：到时间就换下一张，一直轮转
+power_tick screenSaver 4824
+expect "未到时间" power_advance 0
+for t in 4825 4905; do
+  power_tick screenSaver $t
+  expect "到时间换图 $t" power_advance 1
+  expect "到时间换图 $t" power_photo 1
+  sleep_photo_drawn=1; power_photo=0; power_advance=0; sleep_next_change=$((t+80))
+done
+
+# 闹钟提前 10 秒唤醒也算到时间；提前很多（系统自己醒）只重画不换图
+locked_with_photo
+sleep_next_change=4710
+power_event "wakeupFromSuspend 60" 4700
+expect "闹钟提前唤醒" power_advance 1
+locked_with_photo
+sleep_next_change=4750
+power_event "wakeupFromSuspend 60" 4700
+expect "系统提前唤醒" power_advance 0
+expect "系统提前唤醒要重画" sleep_photo_drawn 0
+
+# 刚换完图才读到唤醒事件：不再闪第二次
+locked_with_photo
+sleep_next_change=4780
+power_event "wakeupFromSuspend 90" 4705
+expect "刚画完不重画" sleep_photo_drawn 1
+expect "刚画完不换图" power_advance 0
 
 # 用户唤醒：解锁事件取消换图，回到同一张
 locked_with_photo
